@@ -11,6 +11,7 @@ from lark_oapi.api.im.v1 import (
     CreateMessageReactionRequestBody, 
     Emoji
 )
+from ..logger import logger
 
 class FeishuConnector:
     """模仿 nanobot 的飞书通道。"""
@@ -36,12 +37,12 @@ class FeishuConnector:
         
         # 将 WS client 放在独立的后台线程运行，不占用 loop 的默认 executor
         def run_ws():
-            print("🚀 [nanocore] 飞书连接已启动。")
+            logger.info("🚀 [nanocore] 飞书连接已启动。")
             while self._running:
                 try:
                     ws_client.start()
                 except Exception as e:
-                    print(f"⚠️ [飞书] WebSocket 异常断开: {e}")
+                    logger.warning(f"⚠️ [飞书] WebSocket 异常断开: {e}")
                     import time
                     time.sleep(5) # 失败重试
 
@@ -58,7 +59,7 @@ class FeishuConnector:
         content_json = json.loads(event.message.content)
         text = content_json.get("text", "")
         
-        print(f"📥 [飞书] 收到消息: '{text}' (ID: {message_id})")
+        logger.info(f"📥 [飞书] 收到消息: '{text}' (ID: {message_id})")
         
         # 立即给一个确认 (Confirm Receive)
         await self._send_reaction(message_id, "THUMBSUP")
@@ -71,7 +72,7 @@ class FeishuConnector:
 
     async def _send_reaction(self, message_id: str, emoji_type: str):
         """发送表情回复"""
-        print(f"⚡️ [飞书] 尝试打表情: {emoji_type} 到消息 {message_id}")
+        logger.debug(f"⚡️ [飞书] 尝试打表情: {emoji_type} 到消息 {message_id}")
         try:
             from lark_oapi.api.im.v1 import CreateMessageReactionRequest, CreateMessageReactionRequestBody, Emoji
             request = CreateMessageReactionRequest.builder() \
@@ -84,11 +85,11 @@ class FeishuConnector:
             
             response = await self.loop.run_in_executor(self._executor, self.client.im.v1.message_reaction.create, request)
             if not response.success():
-                print(f"❌ [飞书] 发送表情 {emoji_type} 失败: {response.code} - {response.msg}")
+                logger.error(f"❌ [飞书] 发送表情 {emoji_type} 失败: {response.code} - {response.msg}")
             else:
-                print(f"✅ [飞书] 表情 {emoji_type} 发送成功")
+                logger.debug(f"✅ [飞书] 表情 {emoji_type} 发送成功")
         except Exception as e:
-            print(f"⚠️ [飞书] 发送表情 {emoji_type} 触发异常: {e}")
+            logger.warning(f"⚠️ [飞书] 发送表情 {emoji_type} 触发异常: {e}")
 
     async def watch_outbound(self):
         while True:

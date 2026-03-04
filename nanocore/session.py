@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+from .logger import logger
 
 class SessionManager:
     """负责对话会话的持久化管理。"""
@@ -19,7 +20,7 @@ class SessionManager:
                 with open(path, "r", encoding="utf-8") as f:
                     return json.load(f)
             except Exception as e:
-                print(f"⚠️ 加载会话 {session_id} 失败: {e}")
+                logger.error(f"⚠️ 加载会话 {session_id} 失败: {e}")
         return []
 
     def save(self, session_id: str, messages: list[dict]):
@@ -29,4 +30,4 @@ class SessionManager:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(messages, f, ensure_ascii=False, indent=2)
         except Exception as e:
-            print(f"⚠️ 保存会话 {session_id} 失败: {e}")
+            logger.error(f"⚠️ 保存会话 {session_id} 失败: {e}")

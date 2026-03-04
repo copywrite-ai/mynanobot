@@ -8,6 +8,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     git \
+    tzdata \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the requirements file into the container
@@ -18,6 +19,8 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple \
     pydantic \
     pydantic-settings \
     requests \
+    loguru \
+    croniter \
     urllib3==1.26.18 \
     chardet==4.0.0
 

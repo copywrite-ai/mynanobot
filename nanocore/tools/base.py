@@ -30,6 +30,10 @@ class ToolRegistry:
         """注册一个新工具。"""
         self.tools[tool.name] = tool
 
+    def get(self, name: str) -> BaseTool | None:
+        """获取已注册的工具。"""
+        return self.tools.get(name)
+
     def get_openai_tools(self) -> list[dict]:
         """获取所有已注册工具的 OpenAI Schema 列表。"""
         return [tool.to_openai_tool() for tool in self.tools.values()]

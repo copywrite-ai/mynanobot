@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 from openai import AsyncOpenAI
+from .logger import logger
 from .tools.base import ToolRegistry
 from .session import SessionManager
 from .tools.memory import MemoryStore
@@ -23,7 +24,7 @@ class AgentBrain:
         self.max_turns = 10
 
     async def run(self):
-        print("🧠 [nanocore] 大脑引擎已启动。")
+        logger.info("🧠 [nanocore] 大脑引擎已启动。")
         
         # 加载灵魂与长期记忆
         soul = Path("SOUL.md").read_text() if Path("SOUL.md").exists() else "你是一个助手。"
@@ -47,7 +48,7 @@ class AgentBrain:
                 message_id = incoming.get('message_id')
                 session_id = sender # 简化处理：以发送者为会话 ID
                 
-                print(f"🧠 [大脑] 收到任务: {user_text}")
+                logger.info(f"🧠 [大脑] 收到任务: {user_text}")
 
                 # 1. 加载历史消息
                 messages = []
@@ -69,55 +70,89 @@ class AgentBrain:
                 
                 messages.append({"role": "user", "content": user_text})
                 
-                for turn in range(self.max_turns):
-                    try:
-                        openai_tools = self.tools.get_openai_tools() if self.tools else None
-                        
-                        response = await self.client.chat.completions.create(
-                            model=self.model,
-                            messages=messages,
-                            tools=openai_tools if openai_tools else None
-                        )
-                    except Exception as e:
-                        error_msg = f"LLM 调用出错: {str(e)}"
-                        print(f"❌ {error_msg}")
-                        await self.bus.outbound.put({"sender": sender, "message_id": message_id, "text": error_msg, "status": "error"})
-                        break
-                    
-                    resp_msg = response.choices[0].message
-                    
-                    if not resp_msg.tool_calls:
-                        final_text = resp_msg.content or ""
-                        messages.append({"role": "assistant", "content": final_text})
-                        
-                        # 2. 保存并回复
-                        if self.session_manager:
-                            self.session_manager.save(session_id, messages)
-                        
-                        await self.bus.outbound.put({
-                            "sender": sender,
-                            "message_id": message_id,
-                            "text": final_text,
-                            "status": "finished"
-                        })
-                        break
-                    
-                    messages.append(resp_msg)
-                    for tc in resp_msg.tool_calls:
-                        name = tc.function.name
-                        args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
-                        print(f"  ↳ 🛠️  执行工具: {name}")
-                        
-                        if self.tools:
-                            result = await self.tools.call(name, args)
-                        else:
-                            result = f"错误：未配置工具注册表，无法执行 {name}。"
-                        
-                        messages.append({"role": "tool", "tool_call_id": tc.id, "name": name, "content": result})
+                # 2. 执行处理 (ReAct 循环)
+                final_text = await self._process_turn(messages, sender, message_id)
+                
+                # 3. 保存并回复
+                if self.session_manager:
+                    self.session_manager.save(session_id, messages)
+                
+                await self.bus.outbound.put({
+                    "sender": sender,
+                    "message_id": message_id,
+                    "text": final_text,
+                    "status": "finished"
+                })
             except Exception as e:
-                print(f"❌ [大脑] 处理消息出错 (系统级): {e}")
+                logger.error(f"❌ [大脑] 处理消息出错 (系统级): {e}")
                 # 即使出错也不退出 while True，保证大脑继续运行
                 await asyncio.sleep(1)
+
+    async def _process_turn(self, messages, sender, message_id):
+        """执行单次对话循环（支持多轮工具调用）。"""
+        for turn in range(self.max_turns):
+            try:
+                openai_tools = self.tools.get_openai_tools() if self.tools else None
+                response = await self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=openai_tools if openai_tools else None
+                )
+            except Exception as e:
+                error_msg = f"LLM 调用出错: {str(e)}"
+                logger.error(f"❌ {error_msg}")
+                return error_msg
+
+            resp_msg = response.choices[0].message
+            if not resp_msg.tool_calls:
+                final_text = resp_msg.content or ""
+                messages.append({"role": "assistant", "content": final_text})
+                return final_text
+
+            # 将 OpenAI 的消息对象转为 dict 存入历史，否则无法 JSON 序列化
+            messages.append(resp_msg.model_dump())
+            
+            for tc in resp_msg.tool_calls:
+                name = tc.function.name
+                args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
+                logger.info(f"  ↳ 🛠️  执行工具: {name}({json.dumps(args, ensure_ascii=False)})")
+                if self.tools:
+                    # 如果是 Cron 工具，设置上下文
+                    cron_tool = self.tools.get("cron")
+                    if cron_tool and hasattr(cron_tool, "set_context"):
+                        cron_tool.set_context(sender=sender)
+                    result = await self.tools.call(name, args)
+                else:
+                    result = f"错误：未配置工具注册表，无法执行 {name}。"
+                messages.append({"role": "tool", "tool_call_id": tc.id, "name": name, "content": result})
+        return "达到最大思考轮数，未生成最终回复。"
+
+    async def process_direct(self, content: str, sender: str, message_id: str = None) -> str:
+        """从外部（如定时任务）直接触发一次大脑处理。"""
+        # 1. 设置上下文
+        soul = Path("SOUL.md").read_text() if Path("SOUL.md").exists() else "你是一个助手。"
+        base_system_prompt = f"{soul}\n\n当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        
+        # 2. 加载会话
+        messages = []
+        if self.session_manager:
+            messages = self.session_manager.load(sender)
+        
+        if not messages:
+            messages = [{"role": "system", "content": base_system_prompt}]
+        else:
+            messages[0] = {"role": "system", "content": base_system_prompt}
+            
+        messages.append({"role": "user", "content": content})
+        
+        # 3. 执行处理
+        result = await self._process_turn(messages, sender, message_id)
+        
+        # 4. 保存会话
+        if self.session_manager:
+            self.session_manager.save(sender, messages)
+            
+        return result
 
 if __name__ == "__main__":
     # 独立测试大脑：不需要飞书，直接在终端模拟对话
