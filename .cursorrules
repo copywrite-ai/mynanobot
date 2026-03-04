@@ -1,0 +1,6 @@
+# Project Rules and Preferences
+
+- Documentation style: Professional, concise, and objective.
+- Emojis: Strictly prohibited in all generated text and documentation.
+- Communication: Avoid "AI-assistant" tropes and enthusiastic filler. Focus on technical accuracy and direct instructions.
+- Coding style: Follow the modular architecture established in `nanocore`.

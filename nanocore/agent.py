@@ -1,0 +1,142 @@
+import asyncio
+import os
+import json
+from pathlib import Path
+from datetime import datetime
+from openai import AsyncOpenAI
+from .tools.base import ToolRegistry
+from .session import SessionManager
+from .tools.memory import MemoryStore
+
+class AgentBrain:
+    """模仿 nanobot 的核心智能体循环 (ReAct)。"""
+    def __init__(self, bus, model="local-model", base_url="http://localhost:1234/v1", 
+                 tool_registry: ToolRegistry = None, 
+                 session_manager: SessionManager = None,
+                 memory_store: MemoryStore = None):
+        self.bus = bus
+        self.client = AsyncOpenAI(base_url=base_url, api_key="lm-studio")
+        self.model = model
+        self.tools = tool_registry
+        self.session_manager = session_manager
+        self.memory_store = memory_store
+        self.max_turns = 10
+
+    async def run(self):
+        print("🧠 [nanocore] 大脑引擎已启动。")
+        
+        # 加载灵魂与长期记忆
+        soul = Path("SOUL.md").read_text() if Path("SOUL.md").exists() else "你是一个助手。"
+        user_info = Path("USER.md").read_text() if Path("USER.md").exists() else ""
+        long_term_memory = self.memory_store.read() if self.memory_store else ""
+        
+        base_system_prompt = f"{soul}\n\n{user_info}\n\n"
+        base_system_prompt += f"当前时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        base_system_prompt += f"工作目录: {os.getcwd()}\n"
+        
+        if long_term_memory:
+            base_system_prompt += f"\n### 长期记忆 (Long-term Memory)\n{long_term_memory}\n"
+
+        base_system_prompt += "\n你可以通过调用工具来执行文件操作、命令及保存记忆。\n"
+
+        while True:
+            try:
+                incoming = await self.bus.inbound.get()
+                user_text = incoming['text']
+                sender = incoming['sender']
+                message_id = incoming.get('message_id')
+                session_id = sender # 简化处理：以发送者为会话 ID
+                
+                print(f"🧠 [大脑] 收到任务: {user_text}")
+
+                # 1. 加载历史消息
+                messages = []
+                if self.session_manager:
+                    messages = self.session_manager.load(session_id)
+                
+                if not messages:
+                    messages = [{"role": "system", "content": base_system_prompt}]
+                else:
+                    # 确保 system prompt 始终是最新的（包含最新记忆和时间）
+                    messages[0] = {"role": "system", "content": base_system_prompt}
+                
+                # 发送正在处理反馈
+                await self.bus.outbound.put({
+                    "sender": sender,
+                    "message_id": message_id,
+                    "status": "processing"
+                })
+                
+                messages.append({"role": "user", "content": user_text})
+                
+                for turn in range(self.max_turns):
+                    try:
+                        openai_tools = self.tools.get_openai_tools() if self.tools else None
+                        
+                        response = await self.client.chat.completions.create(
+                            model=self.model,
+                            messages=messages,
+                            tools=openai_tools if openai_tools else None
+                        )
+                    except Exception as e:
+                        error_msg = f"LLM 调用出错: {str(e)}"
+                        print(f"❌ {error_msg}")
+                        await self.bus.outbound.put({"sender": sender, "message_id": message_id, "text": error_msg, "status": "error"})
+                        break
+                    
+                    resp_msg = response.choices[0].message
+                    
+                    if not resp_msg.tool_calls:
+                        final_text = resp_msg.content or ""
+                        messages.append({"role": "assistant", "content": final_text})
+                        
+                        # 2. 保存并回复
+                        if self.session_manager:
+                            self.session_manager.save(session_id, messages)
+                        
+                        await self.bus.outbound.put({
+                            "sender": sender,
+                            "message_id": message_id,
+                            "text": final_text,
+                            "status": "finished"
+                        })
+                        break
+                    
+                    messages.append(resp_msg)
+                    for tc in resp_msg.tool_calls:
+                        name = tc.function.name
+                        args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
+                        print(f"  ↳ 🛠️  执行工具: {name}")
+                        
+                        if self.tools:
+                            result = await self.tools.call(name, args)
+                        else:
+                            result = f"错误：未配置工具注册表，无法执行 {name}。"
+                        
+                        messages.append({"role": "tool", "tool_call_id": tc.id, "name": name, "content": result})
+            except Exception as e:
+                print(f"❌ [大脑] 处理消息出错 (系统级): {e}")
+                # 即使出错也不退出 while True，保证大脑继续运行
+                await asyncio.sleep(1)
+
+if __name__ == "__main__":
+    # 独立测试大脑：不需要飞书，直接在终端模拟对话
+    async def test_brain():
+        from nanocore.bus import MessageBus
+        bus = MessageBus()
+        brain = AgentBrain(bus)
+        
+        # 启动大脑（异步运行）
+        task = asyncio.create_task(brain.run())
+        
+        # 模拟喂一条消息
+        print("👤 模拟用户输入: 你好，请介绍一下你自己。")
+        await bus.inbound.put({"sender": "me", "text": "你好，请介绍一下你自己。"})
+        
+        # 等待大脑回复
+        reply = await bus.outbound.get()
+        print(f"🤖 大脑回复: {reply['text']}")
+        
+        task.cancel() # 测试完关闭
+
+    asyncio.run(test_brain())
