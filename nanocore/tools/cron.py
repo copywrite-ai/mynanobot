@@ -21,7 +21,10 @@ class CronTool(BaseTool):
 
     @property
     def description(self) -> str:
-        return "管理定时提醒和周期性任务。支持动作：add (添加), list (查看), remove (删除)。"
+        return (
+            "管理定时提醒和周期性任务。支持动作：add (添加), list (查看), remove (删除单条), remove_all (清空所有)。\n"
+            "重要：在调用此工具创建周期任务前，如果用户意图模糊（例如只说‘每 5 分钟’），你必须先询问用户是希望‘整点对齐（如 14:00, 14:05）’还是‘从现在开始计时’。"
+        )
 
     @property
     def parameters(self) -> dict:
@@ -30,12 +33,15 @@ class CronTool(BaseTool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "remove"],
-                    "description": "要执行的动作"
+                    "enum": ["add", "list", "remove", "remove_all"],
+                    "description": "要执行的动作。如果用户想清除/清空所有定时任务，请使用 remove_all。"
                 },
                 "message": {"type": "string", "description": "提醒内容（用于 add）"},
-                "every_seconds": {"type": "integer", "description": "间隔秒数（用于周期任务）"},
-                "cron_expr": {"type": "string", "description": "Cron 表达式，如 '0 9 * * *'"},
+                "every_seconds": {
+                    "type": "integer", 
+                    "description": "间隔秒数。如果是 60 的倍数（分钟），系统会自动对齐到时钟刻度。对极复杂的节拍请优先使用 cron_expr。"
+                },
+                "cron_expr": {"type": "string", "description": "Cron 表达式，如 '0 9 * * *'，用于精确的日/周/特定整点控制。"},
                 "at": {"type": "string", "description": "ISO 时间格式，如 '2026-03-04T12:00:00'（用于一次性提醒）"},
                 "job_id": {"type": "string", "description": "任务 ID（用于 remove）"}
             },
@@ -49,7 +55,13 @@ class CronTool(BaseTool):
             return self._list_jobs()
         elif action == "remove":
             return self._remove_job(kwargs.get("job_id"))
+        elif action == "remove_all":
+            return self._remove_all_jobs()
         return f"未知动作: {action}"
+
+    def _remove_all_jobs(self) -> str:
+        count = self._cron.clear_jobs()
+        return f"已成功清空所有定时任务 (共 {count} 个)。"
 
     def _add_job(self, message: str = "", every_seconds: int = None, 
                  cron_expr: str = None, at: str = None, **kwargs) -> str:

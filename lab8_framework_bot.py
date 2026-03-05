@@ -8,6 +8,9 @@ from nanocore.connectors.feishu import FeishuConnector
 # 配置信息 (从环境变量读取)
 APP_ID = os.getenv("FEISHU_APP_ID", "")
 APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
+LM_URL = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
+LM_MODEL = os.getenv("LM_MODEL", "local-model")
+LM_API_KEY = os.getenv("LM_API_KEY", "lm-studio")
 
 from nanocore.tools.base import ToolRegistry
 from nanocore.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool, EditFileTool
@@ -16,6 +19,8 @@ from nanocore.session import SessionManager
 from nanocore.tools.memory import MemoryStore, SaveMemoryTool
 from nanocore.cron import CronService
 from nanocore.tools.cron import CronTool
+from nanocore.subagent import SubagentManager
+from nanocore.tools.spawn import SpawnTool
 from pathlib import Path
 
 # 配置信息
@@ -25,7 +30,7 @@ APP_SECRET = "UeqcAN0CYicRqNRFUThfPeOQaKH4firz"
 async def start_my_bot():
     # 1. 初始化总线和持久化层
     bus = MessageBus()
-    session_manager = SessionManager()
+    session_manager = SessionManager(Path("data/sessions"))
     memory_store = MemoryStore()
 
     # 2. 初始化工具注册表并注册工具
@@ -41,10 +46,31 @@ async def start_my_bot():
     cron_store_path = Path("data/cron/jobs.json")
     cron_service = CronService(cron_store_path)
 
-    # 4. 初始化大脑
+    # 4. 初始化子代理管理器 (SubagentManager)
     lm_url = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
-    brain = AgentBrain(bus, base_url=lm_url, tool_registry=registry, 
-                       session_manager=session_manager, memory_store=memory_store)
+    
+    def brain_factory():
+        """为子代理创建专用的大脑实例。"""
+        sub_registry = ToolRegistry()
+        sub_registry.register(ReadFileTool())
+        sub_registry.register(WriteFileTool())
+        sub_registry.register(ListDirTool())
+        sub_registry.register(EditFileTool())
+        sub_registry.register(ExecTool())
+        sub_registry.register(SaveMemoryTool(memory_store))
+        
+        return AgentBrain(bus, model=LM_MODEL, base_url=LM_URL, api_key=LM_API_KEY,
+                          tool_registry=sub_registry, 
+                          session_manager=None, memory_store=memory_store)
+
+    subagent_manager = SubagentManager(brain_factory, bus)
+    registry.register(SpawnTool(subagent_manager)) # 注册分身工具
+
+    # 5. 初始化大脑
+    brain = AgentBrain(bus, model=LM_MODEL, base_url=LM_URL, api_key=LM_API_KEY,
+                       tool_registry=registry, 
+                       session_manager=session_manager, memory_store=memory_store,
+                       subagent_manager=subagent_manager)
 
     # 定义定时任务回调
     async def on_cron_job(job):
@@ -78,7 +104,7 @@ async def start_my_bot():
     
     logger.info("✨ [mynanocloud] 极简框架版启动中...")
     
-    # 6. 并发运行所有组件
+    # 7. 并发运行所有组件
     await asyncio.gather(
         brain.run(),
         feishu.watch_outbound(),

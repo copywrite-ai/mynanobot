@@ -12,15 +12,18 @@ from .tools.memory import MemoryStore
 class AgentBrain:
     """模仿 nanobot 的核心智能体循环 (ReAct)。"""
     def __init__(self, bus, model="local-model", base_url="http://localhost:1234/v1", 
+                 api_key="lm-studio",
                  tool_registry: ToolRegistry = None, 
                  session_manager: SessionManager = None,
-                 memory_store: MemoryStore = None):
+                 memory_store: MemoryStore = None,
+                 subagent_manager=None):
         self.bus = bus
-        self.client = AsyncOpenAI(base_url=base_url, api_key="lm-studio")
+        self.client = AsyncOpenAI(base_url=base_url, api_key=api_key)
         self.model = model
         self.tools = tool_registry
         self.session_manager = session_manager
         self.memory_store = memory_store
+        self.subagent_manager = subagent_manager
         self.max_turns = 10
 
     async def run(self):
@@ -43,11 +46,29 @@ class AgentBrain:
         while True:
             try:
                 incoming = await self.bus.inbound.get()
-                user_text = incoming['text']
+                user_text = incoming.get('text', '').strip()
                 sender = incoming['sender']
                 message_id = incoming.get('message_id')
                 session_id = sender # 简化处理：以发送者为会话 ID
                 
+                # 处理 /stop 指令
+                if user_text == "/stop":
+                    logger.info(f"🧠 [大脑] 收到停止指令来自: {sender}")
+                    count = 0
+                    if self.subagent_manager:
+                        count = await self.subagent_manager.stop_all()
+                    
+                    await self.bus.outbound.put({
+                        "sender": sender,
+                        "message_id": message_id,
+                        "text": f"⏹ 已停止 {count} 个后台任务并清理上下文。" if count else "⏹ 已清理当前指令集。",
+                        "status": "finished"
+                    })
+                    continue
+
+                if not user_text:
+                    continue
+
                 logger.info(f"🧠 [大脑] 收到任务: {user_text}")
 
                 # 1. 加载历史消息
@@ -117,10 +138,11 @@ class AgentBrain:
                 args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
                 logger.info(f"  ↳ 🛠️  执行工具: {name}({json.dumps(args, ensure_ascii=False)})")
                 if self.tools:
-                    # 如果是 Cron 工具，设置上下文
-                    cron_tool = self.tools.get("cron")
-                    if cron_tool and hasattr(cron_tool, "set_context"):
-                        cron_tool.set_context(sender=sender)
+                    # 如果工具需要上下文，设置上下文
+                    tool_instance = self.tools.get(name)
+                    if tool_instance and hasattr(tool_instance, "set_context"):
+                        tool_instance.set_context(sender=sender)
+                        
                     result = await self.tools.call(name, args)
                 else:
                     result = f"错误：未配置工具注册表，无法执行 {name}。"

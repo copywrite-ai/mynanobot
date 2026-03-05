@@ -5,8 +5,11 @@ services:
     volumes:
       - .:/app
     environment:
-      # Use host.docker.internal to access LM Studio on the host
-      - LM_STUDIO_URL=http://host.docker.internal:1234/v1
+      - FEISHU_APP_ID=${FEISHU_APP_ID}
+      - FEISHU_APP_SECRET=${FEISHU_APP_SECRET}
+      - LM_STUDIO_URL=${LM_STUDIO_URL}
+      - LM_MODEL=${LM_MODEL}
+      - LM_API_KEY=${LM_API_KEY}
       - TZ=Asia/Shanghai
     extra_hosts:
       - "host.docker.internal:host-gateway"

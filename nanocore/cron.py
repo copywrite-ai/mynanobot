@@ -50,7 +50,17 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
     if schedule.kind == "at":
         return schedule.at_ms if schedule.at_ms and schedule.at_ms > now_ms else None
     if schedule.kind == "every":
-        return now_ms + (schedule.every_ms or 0)
+        interval = schedule.every_ms or 0
+        if interval <= 0:
+            return None
+        
+        # 优化：如果间隔是整秒或整分钟，对齐到时钟刻度
+        # 例如：every 5m，不论现在是 14:02:30，下一次都瞄准 14:05:00
+        if interval >= 1000 and interval % 1000 == 0:
+            # 对齐到 Unix Epoch 以来的整数倍
+            return ((now_ms // interval) + 1) * interval
+            
+        return now_ms + interval
     if schedule.kind == "cron" and schedule.expr:
         try:
             from croniter import croniter
@@ -63,12 +73,30 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
             return None
     return None
 
+def _compute_next_after_due(schedule: CronSchedule, due_ms: int, now_ms: int) -> int | None:
+    """基于“原定触发时间”计算下一次，并跳过已经错过的周期，防止连环补触发。"""
+    if schedule.kind == "every":
+        interval = schedule.every_ms or 0
+        if interval <= 0:
+            return None
+        nxt = due_ms + interval
+        while nxt <= now_ms:
+            nxt += interval
+        return nxt
+    if schedule.kind == "cron":
+        nxt = _compute_next_run(schedule, due_ms)
+        while nxt is not None and nxt <= now_ms:
+            nxt = _compute_next_run(schedule, nxt)
+        return nxt
+    return None
+
 class CronService:
     def __init__(self, store_path: Path, on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] = None):
         self.store_path = Path(store_path)
         self.on_job = on_job
         self.jobs: list[CronJob] = []
         self._timer_task: asyncio.Task | None = None
+        self._job_tasks: dict[str, asyncio.Task] = {}
         self._running = False
         self._load()
 
@@ -116,6 +144,9 @@ class CronService:
         self._running = False
         if self._timer_task:
             self._timer_task.cancel()
+        for task in self._job_tasks.values():
+            task.cancel()
+        self._job_tasks.clear()
 
     def _recompute_next_runs(self):
         now = _now_ms()
@@ -146,10 +177,27 @@ class CronService:
         due = [j for j in self.jobs if j.enabled and j.state.next_run_at_ms and now >= j.state.next_run_at_ms]
         
         for job in due:
-            await self._execute_job(job)
+            self._dispatch_job(job, now)
         
         self._save()
         self._arm_timer()
+
+    def _dispatch_job(self, job: CronJob, now_ms: int):
+        due_ms = job.state.next_run_at_ms or now_ms
+
+        # 先推进下一次触发时间，避免执行耗时拖慢节拍
+        if job.schedule.kind == "at":
+            job.state.next_run_at_ms = None
+        else:
+            job.state.next_run_at_ms = _compute_next_after_due(job.schedule, due_ms, now_ms)
+
+        running_task = self._job_tasks.get(job.id)
+        if running_task and not running_task.done():
+            logger.warning(f"⏭️ [Cron] 任务仍在执行，跳过本次重入: {job.name} ({job.id})")
+            return
+
+        task = asyncio.create_task(self._execute_job(job))
+        self._job_tasks[job.id] = task
 
     async def _execute_job(self, job: CronJob):
         logger.info(f"⚡️ [Cron] 正在触发任务: {job.name} ({job.id})")
@@ -170,11 +218,11 @@ class CronService:
         if job.schedule.kind == "at":
             if job.delete_after_run:
                 self.jobs = [j for j in self.jobs if j.id != job.id]
+                self._job_tasks.pop(job.id, None) # 彻底清理追踪
             else:
                 job.enabled = False
                 job.state.next_run_at_ms = None
-        else:
-            job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+        self._save()
 
     def add_job(self, name: str, schedule: CronSchedule, message: str, 
                 deliver=False, channel=None, to=None, delete_after_run=False) -> CronJob:
@@ -194,11 +242,39 @@ class CronService:
     def list_jobs(self) -> list[CronJob]:
         return self.jobs
 
+    async def run_job(self, job_id: str) -> bool:
+        for job in self.jobs:
+            if job.id == job_id:
+                self._dispatch_job(job, _now_ms())
+                return True
+        return False
+
     def remove_job(self, job_id: str) -> bool:
         before = len(self.jobs)
         self.jobs = [j for j in self.jobs if j.id != job_id]
         if len(self.jobs) < before:
+            # 停止并移除正在运行的任务
+            task = self._job_tasks.pop(job_id, None)
+            if task and not task.done():
+                task.cancel()
+                logger.info(f"🚫 [Cron] 已强行停止并移除任务: {job_id}")
+            
             self._save()
             self._arm_timer()
             return True
         return False
+
+    def clear_jobs(self) -> int:
+        count = len(self.jobs)
+        # 停止所有正在运行的任务
+        for job_id, task in self._job_tasks.items():
+            if not task.done():
+                task.cancel()
+                logger.info(f"🚫 [Cron] 已取消正在运行的任务: {job_id}")
+        self._job_tasks.clear()
+        
+        self.jobs = []
+        self._save()
+        self._arm_timer()
+        logger.info(f"🧹 [Cron] 已清空所有任务 (共 {count} 个)")
+        return count
