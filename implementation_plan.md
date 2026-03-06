@@ -65,6 +65,13 @@ This plan is designed to take you from a Python beginner to a "master" of the `n
     - **[MODIFY] lab8_framework_bot.py**: Added `load_dotenv()` to ensure `.env` file is loaded during native execution.
     - **Cleaning**: Cleared `data/sessions/` to resolve context conflicts with deleted tools.
 
+### Phase 36: Optimize MediaTool for App Specificity
+    - **Goal**: Support specific app targeting and improve playback toggling reliability.
+    - **[MODIFY] nanocore/tools/media.py**: 
+        - Add `app_name` parameter to tool schema.
+        - Refactor `play_pause` to use `activate` + `keystroke " "` for both NeteaseMusic and Spotify.
+        - Ensure `app_name` allows direct targeting if provided by LLM.
+
 ### Phase 20: Scheduler Precision [DONE]
 - **[MODIFY] nanocore/cron.py**: Modified `_execute_job` to calculate the next run time relative to the *intended* start time (`job.state.next_run_at_ms`) rather than the *actual* finish time, eliminating cumulative drift.
 

@@ -3,9 +3,9 @@ from .base import BaseTool
 from nanocore.logger import logger
 
 class MediaTool(BaseTool):
-    """智能控制 macOS 全局媒体（比纯模拟按键更稳定）。"""
+    """智能控制 macOS 全局媒体（支持特定应用控制及全局热键）。"""
     name = "media_control"
-    description = "Control system-wide media playback. Supports play/pause, next, previous, and volume control. Works globally regardless of window focus."
+    description = "Control system-wide media playback. Supports play/pause, next, previous, and volume control. Can target specific apps like 'Spotify', 'NeteaseMusic', or 'Music'."
     parameters = {
         "type": "object",
         "properties": {
@@ -13,45 +13,57 @@ class MediaTool(BaseTool):
                 "type": "string",
                 "enum": ["play_pause", "next", "previous", "volume_up", "volume_down", "mute", "status"],
                 "description": "The action: play_pause (toggle), next, previous, volume_up, volume_down, mute, or status."
+            },
+            "app_name": {
+                "type": "string",
+                "description": "Optional: Specific application to target (e.g., 'Spotify', 'NeteaseMusic', 'Music')."
             }
         },
         "required": ["action"]
     }
 
-    async def execute(self, action: str) -> str:
+    async def execute(self, action: str, app_name: str = None) -> str:
         if action == "play_pause":
-            # 优先检查网易云音乐，因为用户明确要求使用该指令
-            script = """
-            try
-                if application "NeteaseMusic" is running then
-                    tell application "NeteaseMusic" to activate
-                    delay 0.2
-                    tell application "System Events" to keystroke " "
-                    return "NeteaseMusic: Play/Pause toggled via Space"
-                else
-                    error "NeteaseMusic not running"
-                end if
-            on error
+            if app_name:
+                # 如果明确指定了应用，直接按键模式尝试
+                script = f"""
+                tell application "{app_name}" to activate
+                delay 0.2
+                tell application "System Events" to keystroke " "
+                return "{app_name}: Play/Pause toggled via Space"
+                """
+            else:
+                # 默认优先级逻辑
+                script = """
                 try
-                    tell application "Music" to playpause
-                    return "Music.app: playpause sent"
+                    if application "NeteaseMusic" is running then
+                        tell application "NeteaseMusic" to activate
+                        delay 0.2
+                        tell application "System Events" to keystroke " "
+                        return "NeteaseMusic: Play/Pause toggled via Space"
+                    else if application "Spotify" is running then
+                        tell application "Spotify" to activate
+                        delay 0.2
+                        tell application "System Events" to keystroke " "
+                        return "Spotify: Play/Pause toggled via Space"
+                    else if application "Music" is running then
+                        tell application "Music" to playpause
+                        return "Music.app: playpause sent"
+                    else
+                        error "No known music application running"
+                    end if
                 on error
-                    try
-                        tell application "Spotify" to playpause
-                        return "Spotify: playpause sent"
-                    on error
-                        # 最后的保底手段：发送全局硬件媒体键信号 (F8)
-                        tell application "System Events" to key code 101
-                        return "System: F8 (Media Key) sent"
-                    end try
+                    # 最后的保底手段：发送全局硬件媒体键信号 (F8 = 101)
+                    tell application "System Events" to key code 101
+                    return "System: F8 (Media Key) sent as fallback"
                 end try
-            end try
-            """
+                """
         elif action == "next":
-            script = """
+            target = f'application "{app_name}"' if app_name else 'application "Music"'
+            script = f"""
             try
-                if application "Music" is running then
-                    tell application "Music" to next track
+                if {target} is running then
+                    tell {target} to next track
                 else
                     tell application "System Events" to key code 103
                 end if
@@ -60,10 +72,11 @@ class MediaTool(BaseTool):
             end try
             """
         elif action == "previous":
-            script = """
+            target = f'application "{app_name}"' if app_name else 'application "Music"'
+            script = f"""
             try
-                if application "Music" is running then
-                    tell application "Music" to previous track
+                if {target} is running then
+                    tell {target} to previous track
                 else
                     tell application "System Events" to key code 100
                 end if
@@ -87,8 +100,16 @@ class MediaTool(BaseTool):
                         return "Music.app 已暂停"
                     end if
                 end tell
+            else if application "Spotify" is running then
+                 tell application "Spotify"
+                    if player state is playing then
+                        return "Spotify 正在播放: " & name of current track & " - " & artist of current track
+                    else
+                        return "Spotify 已暂停"
+                    end if
+                end tell
             else
-                return "Music.app 未运行"
+                return "No supported music app running for status check"
             end if
             """
         else:
