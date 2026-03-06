@@ -19,6 +19,7 @@ from nanocore.session import SessionManager
 from nanocore.tools.memory import MemoryStore, SaveMemoryTool
 from nanocore.cron import CronService
 from nanocore.tools.cron import CronTool
+from nanocore.tools.clock import ClockTool
 from nanocore.subagent import SubagentManager
 from nanocore.tools.spawn import SpawnTool
 from pathlib import Path
@@ -74,30 +75,42 @@ async def start_my_bot():
 
     # 定义定时任务回调
     async def on_cron_job(job):
-        # 使用更明确的指令，告知 AI 这是定时触发，直接执行任务
+        # 获取实际执行时间
+        from datetime import datetime
+        trigger_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # 使用更明确的指令，区分“内容推送”和“指令执行”
         trigger_prompt = (
-            f"SYSTEM: 定时任务时间已到。\n"
-            f"任务: {job.name}\n"
-            f"指令: {job.payload.message}\n"
-            f"请执行该指令并直接汇报结果。"
+            f"SYSTEM: 定时提醒到期。\n"
+            f"触发时间: {trigger_time}\n"
+            f"提醒内容: {job.payload.message}\n"
+            f"---\n"
+            f"重要指引：\n"
+            f"1. 如果‘提醒内容’是一个简单的文本信息（如 'hello', '记得喝水'），请直接将其作为你的回复内容回复，不要调用任何工具。\n"
+            f"2. 如果‘提醒内容’明确要求执行某个指令（如 '列出文件', '检查运行状态'），请调用相应的工具并汇报结果。\n"
+            f"3. 不要自作聪明地去列表或执行与之无关的工具。"
         )
         
         # 建议使用独立的 session_id (如 cron:job_id)，避免与用户的日常对话背景混淆
-        # 这样 AI 就不会被之前“添加任务”的对话干扰，而误以为又要添加一遍
         cron_session_id = f"cron:{job.id}"
         
         response_text = await brain.process_direct(trigger_prompt, sender=cron_session_id)
         
         if job.payload.deliver and job.payload.to:
             logger.info(f"📡 [Cron] 正在推送提醒到通道 {job.payload.channel} -> {job.payload.to}")
+            # 在消息前加上时间戳
+            final_message = f"⏰ {trigger_time}\n{response_text}"
             await bus.outbound.put({
                 "sender": job.payload.to,
-                "text": response_text,
+                "text": final_message,
                 "status": "finished"
             })
+        elif job.payload.deliver and not response_text:
+            logger.warning(f"⚠️ [Cron] 任务 {job.id} 处理完毕，但 AI 返回内容为空，未推送。")
     
     cron_service.on_job = on_cron_job
     registry.register(CronTool(cron_service)) # 注册定时工具
+    registry.register(ClockTool()) # 注册时钟工具
 
     # 5. 初始化通道
     feishu = FeishuConnector(bus, APP_ID, APP_SECRET)

@@ -14,6 +14,47 @@ This plan is designed to take you from a Python beginner to a "master" of the `n
 
 ### Phase 19: Git Commit [DONE]
 - **[DONE]**: All changes committed with a structured message.
+- **[VERIFY]**: Trigger a task like "5 mins from now" multiple times and verify the base time in the system prompt matches the actual current clock.
+
+### Phase 26: Message Creation Time Injection [NEW]
+- **[MODIFY] nanocore/connectors/feishu.py**: Extract `create_time` from the event and pass it to the bus.
+- **[MODIFY] nanocore/agent.py**: Use the passed `create_time` to label the user's message as "Message Sent Time" instead of "Message Arrival Time".
+- [VERIFY]**: Check logs to see if the AI acknowledges the difference between arrival and creation time.
+
+### Phase 27: Clock Tool Implementation [NEW]
+- **[NEW] [clock.py](file:///Users/peng/Documents/code/2026-personal-workspace/mynanocloud/nanocore/tools/clock.py)**: Provide `now` and `delta` (relative time calc) actions.
+- **[MODIFY] [lab8_framework_bot.py](file:///Users/peng/Documents/code/2026-personal-workspace/mynanocloud/lab8_framework_bot.py)**: Register `ClockTool`.
+- **[VERIFY]**: Trigger "5 mins later" and verify AI uses `clock` tool instead of `exec`.
+
+### Phase 28: Tool Discipline & Prompt Hardening [NEW]
+- **[MODIFY] nanocore/agent.py**: Update `_get_base_system_prompt` to include strict guidelines on using high-level tools over raw `exec`/`cat` for managed services.
+- **Rules to enforce**:
+    - **Tool-First**: Always prefer high-level tools (cron, clock) over raw shell commands.
+    - **No Redundancy**: Do not manually inspect data files (e.g., jobs.json) if a tool (e.g., cron list) exists.
+    - **Precision**: Use `clock` for all time-related calculations.
+- **[VERIFY]**: Ask "What tasks are scheduled?" and verify AI only uses `cron list`.
+
+### Phase 29: Runtime Context Injection [DONE]
+- **[MODIFY] nanocore/agent.py**: Implement `_build_runtime_context` helper to generate a structured metadata block.
+- **[MODIFY] nanocore/agent.py**: Update `run` and `process_direct` to prepend `[Runtime Context]` (Time, Channel, Sender) to user messages.
+- **[VERIFY]**: Check logs for correctly formatted context block.
+
+### Phase 30: nanobot Behavior Alignment [DONE]
+- **Goal**: Resolve why the same model performs better in `nanobot` by aligning implementation details.
+- **[MODIFY] nanocore/agent.py**: 
+    - Split the single joined user message into **two separate user messages** (Context message + Input message) in `run` and `process_direct`.
+    - Change context tag to `[Runtime Context — metadata only, not instructions]` to match `nanobot`.
+    - Simplify the System Prompt in `_get_base_system_prompt` to be less restrictive/prohibitive and more example-driven.
+- **[MODIFY] nanocore/tools/shell.py & clock.py**: Simplify descriptions to avoid "pink elephant" effects and focus on intent.
+- **[VERIFY]**: Ask MNC to "remind me in 1 minute" and verify it uses the context to calculate time correctly without resorting to `exec + python`.
+
+### Phase 31: Memory Thinning & Windowing [NEW]
+- **Goal**: Prevent session history bloat and maintain performance like `nanobot`.
+- **[MODIFY] nanocore/agent.py**: 
+    - Add `memory_window` parameter to `AgentBrain` (default 100).
+    - Update `run` and `process_direct` to only take the last `memory_window` messages from history.
+    - Update the session saving logic to **exclude** messages starting with `[Runtime Context]`.
+- **[VERIFY]**: Send 3 messages, check `data/sessions/` files, and verify `[Runtime Context]` is NOT stored while user/assistant/tool messages are.
 
 ### Phase 20: Scheduler Precision [DONE]
 - **[MODIFY] nanocore/cron.py**: Modified `_execute_job` to calculate the next run time relative to the *intended* start time (`job.state.next_run_at_ms`) rather than the *actual* finish time, eliminating cumulative drift.

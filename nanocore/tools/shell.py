@@ -5,7 +5,7 @@ from .base import BaseTool
 
 class ExecTool(BaseTool):
     name = "exec"
-    description = "执行 shell 命令并返回输出。注意：仅限非交互式命令。"
+    description = "Execute a shell command and return its output."
     parameters = {
         "type": "object",
         "properties": {

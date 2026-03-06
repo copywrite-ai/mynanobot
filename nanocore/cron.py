@@ -48,7 +48,12 @@ def _now_ms() -> int:
 
 def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
     if schedule.kind == "at":
-        return schedule.at_ms if schedule.at_ms and schedule.at_ms > now_ms else None
+        if schedule.at_ms:
+            if schedule.at_ms > now_ms:
+                return schedule.at_ms  # 未来时间，正常调度
+            else:
+                return now_ms  # 时间已过去，返回当前时间，立即执行
+        return None
     if schedule.kind == "every":
         interval = schedule.every_ms or 0
         if interval <= 0:
@@ -202,6 +207,10 @@ class CronService:
     async def _execute_job(self, job: CronJob):
         logger.info(f"⚡️ [Cron] 正在触发任务: {job.name} ({job.id})")
         start_ms = _now_ms()
+        
+        # 添加执行时间戳到 job 对象
+        job.triggered_at_ms = start_ms
+        
         try:
             if self.on_job:
                 await self.on_job(job)

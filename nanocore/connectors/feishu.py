@@ -58,8 +58,10 @@ class FeishuConnector:
         message_id = event.message.message_id
         content_json = json.loads(event.message.content)
         text = content_json.get("text", "")
+        # 获取消息创建时间（毫秒级时间戳）
+        create_time_ms = int(event.message.create_time) if event.message.create_time else None
         
-        logger.info(f"📥 [飞书] 收到消息: '{text}' (ID: {message_id})")
+        logger.info(f"📥 [飞书] 收到来自 {sender_id} 的消息: '{text}' (ID: {message_id}, 诞生于: {create_time_ms})")
         
         # 立即给一个确认 (Confirm Receive)
         await self._send_reaction(message_id, "THUMBSUP")
@@ -67,7 +69,8 @@ class FeishuConnector:
         await self.bus.inbound.put({
             "sender": sender_id, 
             "text": text, 
-            "message_id": message_id
+            "message_id": message_id,
+            "create_time_ms": create_time_ms
         })
 
     async def _send_reaction(self, message_id: str, emoji_type: str):
@@ -120,7 +123,11 @@ class FeishuConnector:
                         .build()
                     ).build()
                 
-                await self.loop.run_in_executor(self._executor, self.client.im.v1.message.create, request)
+                response = await self.loop.run_in_executor(self._executor, self.client.im.v1.message.create, request)
+                if not response.success():
+                    logger.error(f"❌ [飞书] 推送消息失败: {response.code} - {response.msg} (目标: {receive_id})")
+                else:
+                    logger.info(f"✅ [飞书] 消息推送成功 (目标: {receive_id})")
 
 if __name__ == "__main__":
     # 独立测试飞书通道：只测试连接，不连 AI 大脑
