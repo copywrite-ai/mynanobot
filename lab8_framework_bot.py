@@ -1,9 +1,14 @@
 import asyncio
 import os
+from dotenv import load_dotenv
 from nanocore.logger import logger
+
+# 加载 .env 环境变量
+load_dotenv()
 from nanocore.bus import MessageBus
 from nanocore.agent import AgentBrain
 from nanocore.connectors.feishu import FeishuConnector
+from nanocore.tools.media import MediaTool
 
 # 配置信息 (从环境变量读取)
 APP_ID = os.getenv("FEISHU_APP_ID", "")
@@ -41,6 +46,7 @@ async def start_my_bot():
     registry.register(ListDirTool())
     registry.register(EditFileTool())
     registry.register(ExecTool())
+    registry.register(MediaTool()) # 注册媒体控制工具
     registry.register(SaveMemoryTool(memory_store)) # 注册记忆工具
     
     # 3. 初始化定时任务服务
@@ -58,6 +64,7 @@ async def start_my_bot():
         sub_registry.register(ListDirTool())
         sub_registry.register(EditFileTool())
         sub_registry.register(ExecTool())
+        sub_registry.register(MediaTool())
         sub_registry.register(SaveMemoryTool(memory_store))
         
         return AgentBrain(bus, model=LM_MODEL, base_url=LM_URL, api_key=LM_API_KEY,

@@ -56,6 +56,15 @@ This plan is designed to take you from a Python beginner to a "master" of the `n
     - Update the session saving logic to **exclude** messages starting with `[Runtime Context]`.
 - **[VERIFY]**: Send 3 messages, check `data/sessions/` files, and verify `[Runtime Context]` is NOT stored while user/assistant/tool messages are.
 
+### Phase 34: Global Media Control Tool (v2)
+    - **Goal**: Simulate hardware media keys (F7, F8, F9) for global control.
+    - **[NEW] nanocore/tools/media.py**: Implement `MediaTool` using `osascript` with `key code` 100, 101, 103, etc.
+    - **[MODIFY] lab8_framework_bot.py**: Register `MediaTool`.
+
+### Phase 35: Debugging LLM connectivity (502 Error)
+    - **[MODIFY] lab8_framework_bot.py**: Added `load_dotenv()` to ensure `.env` file is loaded during native execution.
+    - **Cleaning**: Cleared `data/sessions/` to resolve context conflicts with deleted tools.
+
 ### Phase 20: Scheduler Precision [DONE]
 - **[MODIFY] nanocore/cron.py**: Modified `_execute_job` to calculate the next run time relative to the *intended* start time (`job.state.next_run_at_ms`) rather than the *actual* finish time, eliminating cumulative drift.
 
