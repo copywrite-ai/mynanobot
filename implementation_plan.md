@@ -65,11 +65,12 @@ This plan is designed to take you from a Python beginner to a "master" of the `n
     - **[MODIFY] lab8_framework_bot.py**: Added `load_dotenv()` to ensure `.env` file is loaded during native execution.
     - **Cleaning**: Cleared `data/sessions/` to resolve context conflicts with deleted tools.
 
-### Phase 36: Optimize MediaTool for Background Execution
-    - **Goal**: Use direct background commands to avoid bringing applications to the foreground.
+### Phase 36: Optimize MediaTool for Background/Shortcut Execution
+    - **Goal**: Use background-friendly commands for Spotify/Music and specific global shortcuts for NeteaseMusic.
     - **[MODIFY] nanocore/tools/media.py**: 
-        - Refactor `play_pause`, `next`, and `previous` to use direct `tell application "..." to playpause/next track/previous track`.
-        - Remove `activate` and `keystroke " "` which were disruptive.
+        - For **NeteaseMusic**: Use `keystroke " " using {control down, option down}` for `play_pause`.
+        - For **Spotify/Music**: Continue using direct `playpause` background commands.
+        - Ensure `app_name` correctly routes to these specific implementations.
 
 ### Phase 20: Scheduler Precision [DONE]
 - **[MODIFY] nanocore/cron.py**: Modified `_execute_job` to calculate the next run time relative to the *intended* start time (`job.state.next_run_at_ms`) rather than the *actual* finish time, eliminating cumulative drift.

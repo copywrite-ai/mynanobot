@@ -24,22 +24,25 @@ class MediaTool(BaseTool):
 
     async def execute(self, action: str, app_name: str = None) -> str:
         if action == "play_pause":
-            if app_name:
-                # 明确指定了应用，直接发送后台指令
+            if app_name == "NeteaseMusic":
+                script = 'tell application "System Events" to keystroke " " using {control down, option down}'
+                return await self._run_osascript(script) + " (NeteaseMusic shortcut)"
+            elif app_name:
                 script = f'tell application "{app_name}" to playpause'
+                return await self._run_osascript(script)
             else:
                 # 默认优先级逻辑
                 script = """
                 try
-                    if application "Spotify" is running then
+                    if application "NeteaseMusic" is running then
+                        tell application "System Events" to keystroke " " using {control down, option down}
+                        return "NeteaseMusic: toggled via Control+Option+Space"
+                    else if application "Spotify" is running then
                         tell application "Spotify" to playpause
                         return "Spotify: playpause sent"
                     else if application "Music" is running then
                         tell application "Music" to playpause
                         return "Music.app: playpause sent"
-                    else if application "NeteaseMusic" is running then
-                        tell application "NeteaseMusic" to playpause
-                        return "NeteaseMusic: playpause sent"
                     else
                         error "No known music application running"
                     end if
