@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import lark_oapi as lark
@@ -94,6 +95,88 @@ class FeishuConnector:
         except Exception as e:
             logger.warning(f"⚠️ [飞书] 发送表情 {emoji_type} 触发异常: {e}")
 
+    # --- L2 Card Parsing Logic (Ref: nanobot) ---
+    _TABLE_RE = re.compile(
+        r"((?:^[ \t]*\|.+\|[ \t]*\n)(?:^[ \t]*\|[-:\s|]+\|[ \t]*\n)(?:^[ \t]*\|.+\|[ \t]*\n?)+)",
+        re.MULTILINE,
+    )
+    _HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
+    _CODE_BLOCK_RE = re.compile(r"(```[\s\S]*?```)", re.MULTILINE)
+
+    @staticmethod
+    def _parse_md_table(table_text: str) -> dict | None:
+        """Parse a markdown table into a Feishu table element."""
+        lines = [_line.strip() for _line in table_text.strip().split("\n") if _line.strip()]
+        if len(lines) < 3:
+            return None
+        def split(_line: str) -> list[str]:
+            return [c.strip() for c in _line.strip("|").split("|")]
+        headers = split(lines[0])
+        rows = [split(_line) for _line in lines[2:]]
+        columns = [{"tag": "column", "name": f"c{i}", "display_name": h, "width": "auto"}
+                   for i, h in enumerate(headers)]
+        return {
+            "tag": "table",
+            "page_size": len(rows) + 1,
+            "columns": columns,
+            "rows": [{f"c{i}": r[i] if i < len(r) else "" for i in range(len(headers))} for r in rows],
+        }
+
+    def _build_card_elements(self, content: str) -> list[dict]:
+        """Split content into div/markdown + table elements for Feishu card."""
+        elements, last_end = [], 0
+        for m in self._TABLE_RE.finditer(content):
+            before = content[last_end:m.start()]
+            if before.strip():
+                elements.extend(self._split_headings(before))
+            # Try parsing table, fallback to markdown if it fails
+            table_element = self._parse_md_table(m.group(1))
+            if table_element:
+                elements.append(table_element)
+            else:
+                elements.append({"tag": "markdown", "content": m.group(1)})
+            last_end = m.end()
+        remaining = content[last_end:]
+        if remaining.strip():
+            elements.extend(self._split_headings(remaining))
+        return elements or [{"tag": "markdown", "content": content}]
+
+    def _split_headings(self, content: str) -> list[dict]:
+        """Split content by headings, converting headings to div elements for better visual separation."""
+        protected = content
+        code_blocks = []
+        for m in self._CODE_BLOCK_RE.finditer(content):
+            code_blocks.append(m.group(1))
+            protected = protected.replace(m.group(1), f"\x00CODE{len(code_blocks)-1}\x00", 1)
+
+        elements = []
+        last_end = 0
+        for m in self._HEADING_RE.finditer(protected):
+            before = protected[last_end:m.start()].strip()
+            if before:
+                elements.append({"tag": "markdown", "content": before})
+            text = m.group(2).strip()
+            # Convert markdown headings to bold text in a div for better card layout
+            elements.append({
+                "tag": "div",
+                "text": {
+                    "tag": "lark_md",
+                    "content": f"**{text}**",
+                },
+            })
+            last_end = m.end()
+        remaining = protected[last_end:].strip()
+        if remaining:
+            elements.append({"tag": "markdown", "content": remaining})
+
+        # Restore code blocks
+        for i, cb in enumerate(code_blocks):
+            for el in elements:
+                if el.get("tag") == "markdown":
+                    el["content"] = el["content"].replace(f"\x00CODE{i}\x00", cb)
+
+        return elements or [{"tag": "markdown", "content": content}]
+
     async def watch_outbound(self):
         while True:
             msg = await self.bus.outbound.get()
@@ -118,8 +201,11 @@ class FeishuConnector:
                     .request_body(
                         CreateMessageRequestBody.builder()
                         .receive_id(receive_id)
-                        .msg_type("text")
-                        .content(json.dumps({"text": text}))
+                        .msg_type("interactive")
+                        .content(json.dumps({
+                            "config": {"wide_screen_mode": True},
+                            "elements": self._build_card_elements(text)
+                        }, ensure_ascii=False))
                         .build()
                     ).build()
                 

@@ -48,7 +48,7 @@ This plan is designed to take you from a Python beginner to a "master" of the `n
 - **[MODIFY] nanocore/tools/shell.py & clock.py**: Simplify descriptions to avoid "pink elephant" effects and focus on intent.
 - **[VERIFY]**: Ask MNC to "remind me in 1 minute" and verify it uses the context to calculate time correctly without resorting to `exec + python`.
 
-### Phase 31: Memory Thinning & Windowing [NEW]
+### Phase 31: Memory Thinning & Windowing [DONE]
 - **Goal**: Prevent session history bloat and maintain performance like `nanobot`.
 - **[MODIFY] nanocore/agent.py**: 
     - Add `memory_window` parameter to `AgentBrain` (default 100).
