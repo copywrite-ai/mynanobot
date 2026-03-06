@@ -5,24 +5,31 @@ from nanocore.logger import logger
 class MediaTool(BaseTool):
     """智能控制 macOS 全局媒体（支持特定应用控制及全局热键）。"""
     name = "media_control"
-    description = "Control system-wide media playback. Supports play/pause, next, previous, and volume control. Can target specific apps like 'Spotify', 'NeteaseMusic', or 'Music'."
+    description = "Control system-wide media playback. Supports play/pause, next, previous, volume, position, and metadata retrieval. Enhanced Spotify support."
     parameters = {
         "type": "object",
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["play_pause", "next", "previous", "volume_up", "volume_down", "mute", "status"],
-                "description": "The action: play_pause (toggle), next, previous, volume_up, volume_down, mute, or status."
+                "enum": [
+                    "play_pause", "next", "previous", "volume_up", "volume_down", "mute", 
+                    "status", "set_volume", "set_position", "get_info", "set_shuffle", "set_repeat"
+                ],
+                "description": "The action to perform."
             },
             "app_name": {
                 "type": "string",
-                "description": "Optional: Specific application to target (e.g., 'Spotify', 'NeteaseMusic', 'Music')."
+                "description": "Optional: 'Spotify', 'NeteaseMusic', or 'Music'."
+            },
+            "value": {
+                "type": "string",
+                "description": "Optional: Value for the action (e.g., volume 0-100, position in seconds, 'on'/'off' for shuffle/repeat)."
             }
         },
         "required": ["action"]
     }
 
-    async def execute(self, action: str, app_name: str = None) -> str:
+    async def execute(self, action: str, app_name: str = None, value: str = None) -> str:
         if action == "play_pause":
             if app_name == "NeteaseMusic":
                 script = 'tell application "System Events" to keystroke " " using {control down, option down}'
@@ -90,11 +97,32 @@ class MediaTool(BaseTool):
             script = "set volume output volume ((output volume of (get volume settings)) + 10)"
         elif action == "volume_down":
             script = "set volume output volume ((output volume of (get volume settings)) - 10)"
-        elif action == "mute":
-            script = "set volume with output muted"
-        elif action == "status":
-            script = """
-            if application "Music" is running then
+        elif action == "set_volume":
+            vol = value if value else "50"
+            if app_name == "Spotify":
+                script = f'tell application "Spotify" to set sound volume to {vol}'
+            else:
+                script = f"set volume output volume {vol}"
+        elif action == "set_position":
+            pos = value if value else "0"
+            if app_name == "Spotify":
+                script = f'tell application "Spotify" to set player position to {pos}'
+            else:
+                return "Error: set_position is currently only supported for Spotify"
+        elif action == "get_info" or action == "status":
+            if app_name == "Spotify" or (not app_name and await self._is_running("Spotify")):
+                script = """
+                tell application "Spotify"
+                    set trackName to name of current track
+                    set trackArtist to artist of current track
+                    set trackAlbum to album of current track
+                    set trackUrl to spotify url of current track
+                    set pState to player state as string
+                    return "Spotify (" & pState & "): " & trackName & " - " & trackArtist & " [" & trackAlbum & "] URL: " & trackUrl
+                end tell
+                """
+            elif app_name == "Music" or (not app_name and await self._is_running("Music")):
+                script = """
                 tell application "Music"
                     if player state is playing then
                         return "Music.app 正在播放: " & name of current track & " - " & artist of current track
@@ -102,22 +130,32 @@ class MediaTool(BaseTool):
                         return "Music.app 已暂停"
                     end if
                 end tell
-            else if application "Spotify" is running then
-                 tell application "Spotify"
-                    if player state is playing then
-                        return "Spotify 正在播放: " & name of current track & " - " & artist of current track
-                    else
-                        return "Spotify 已暂停"
-                    end if
-                end tell
-            else
-                return "No supported music app running for status check"
-            end if
-            """
+                """
+            else:
+                return "No supported music app running or specified for info"
+        elif action == "set_shuffle":
+            mode = "true" if value in ["on", "true", "yes"] else "false"
+            if app_name == "Spotify":
+                script = f'tell application "Spotify" to set shuffling to {mode}'
+            else:
+                return "Error: set_shuffle is only supported for Spotify"
+        elif action == "set_repeat":
+            mode = "true" if value in ["on", "true", "yes"] else "false"
+            if app_name == "Spotify":
+                script = f'tell application "Spotify" to set repeating to {mode}'
+            else:
+                return "Error: set_repeat is only supported for Spotify"
+        elif action == "mute":
+            script = "set volume with output muted"
         else:
             return f"Error: Unsupported action '{action}'"
 
         return await self._run_osascript(script)
+
+    async def _is_running(self, app_name: str) -> bool:
+        script = f'application "{app_name}" is running'
+        res = await self._run_osascript(script)
+        return res == "true"
 
     async def _run_osascript(self, script: str) -> str:
         try:
