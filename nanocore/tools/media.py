@@ -25,30 +25,21 @@ class MediaTool(BaseTool):
     async def execute(self, action: str, app_name: str = None) -> str:
         if action == "play_pause":
             if app_name:
-                # 如果明确指定了应用，直接按键模式尝试
-                script = f"""
-                tell application "{app_name}" to activate
-                delay 0.2
-                tell application "System Events" to keystroke " "
-                return "{app_name}: Play/Pause toggled via Space"
-                """
+                # 明确指定了应用，直接发送后台指令
+                script = f'tell application "{app_name}" to playpause'
             else:
                 # 默认优先级逻辑
                 script = """
                 try
-                    if application "NeteaseMusic" is running then
-                        tell application "NeteaseMusic" to activate
-                        delay 0.2
-                        tell application "System Events" to keystroke " "
-                        return "NeteaseMusic: Play/Pause toggled via Space"
-                    else if application "Spotify" is running then
-                        tell application "Spotify" to activate
-                        delay 0.2
-                        tell application "System Events" to keystroke " "
-                        return "Spotify: Play/Pause toggled via Space"
+                    if application "Spotify" is running then
+                        tell application "Spotify" to playpause
+                        return "Spotify: playpause sent"
                     else if application "Music" is running then
                         tell application "Music" to playpause
                         return "Music.app: playpause sent"
+                    else if application "NeteaseMusic" is running then
+                        tell application "NeteaseMusic" to playpause
+                        return "NeteaseMusic: playpause sent"
                     else
                         error "No known music application running"
                     end if
@@ -59,31 +50,39 @@ class MediaTool(BaseTool):
                 end try
                 """
         elif action == "next":
-            target = f'application "{app_name}"' if app_name else 'application "Music"'
-            script = f"""
-            try
-                if {target} is running then
-                    tell {target} to next track
-                else
+            if app_name:
+                script = f'tell application "{app_name}" to next track'
+            else:
+                script = """
+                try
+                    if application "Spotify" is running then
+                        tell application "Spotify" to next track
+                    else if application "Music" is running then
+                        tell application "Music" to next track
+                    else
+                        tell application "System Events" to key code 103
+                    end if
+                on error
                     tell application "System Events" to key code 103
-                end if
-            on error
-                tell application "System Events" to key code 103
-            end try
-            """
+                end try
+                """
         elif action == "previous":
-            target = f'application "{app_name}"' if app_name else 'application "Music"'
-            script = f"""
-            try
-                if {target} is running then
-                    tell {target} to previous track
-                else
+            if app_name:
+                script = f'tell application "{app_name}" to previous track'
+            else:
+                script = """
+                try
+                    if application "Spotify" is running then
+                        tell application "Spotify" to previous track
+                    else if application "Music" is running then
+                        tell application "Music" to previous track
+                    else
+                        tell application "System Events" to key code 100
+                    end if
+                on error
                     tell application "System Events" to key code 100
-                end if
-            on error
-                tell application "System Events" to key code 100
-            end try
-            """
+                end try
+                """
         elif action == "volume_up":
             script = "set volume output volume ((output volume of (get volume settings)) + 10)"
         elif action == "volume_down":
