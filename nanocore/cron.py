@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Literal, Any, Callable, Coroutine
 from datetime import datetime
 from .logger import logger
+from .i18n import i18n
 
 @dataclass
 class CronSchedule:
@@ -121,8 +122,8 @@ class CronService:
                     delete_after_run=j.get("delete_after_run", False)
                 )
                 self.jobs.append(job)
-        except Exception as e:
-            logger.error(f"⚠️ [Cron] 加载失败: {e}")
+        except (json.JSONDecodeError, FileNotFoundError) as e:
+            logger.error(i18n["cron_load_fail"].format(e=e))
 
     def _save(self):
         self.store_path.parent.mkdir(parents=True, exist_ok=True)
@@ -143,7 +144,7 @@ class CronService:
         self._running = True
         self._recompute_next_runs()
         self._arm_timer()
-        logger.info(f"⏰ [Cron] 服务已启动，包含 {len(self.jobs)} 个任务。")
+        logger.info(i18n["cron_starting"].format(count=len(self.jobs)))
 
     def stop(self):
         self._running = False
@@ -152,6 +153,7 @@ class CronService:
         for task in self._job_tasks.values():
             task.cancel()
         self._job_tasks.clear()
+        self._running_jobs.clear() # Added this
 
     def _recompute_next_runs(self):
         now = _now_ms()
@@ -197,15 +199,17 @@ class CronService:
             job.state.next_run_at_ms = _compute_next_after_due(job.schedule, due_ms, now_ms)
 
         running_task = self._job_tasks.get(job.id)
-        if running_task and not running_task.done():
-            logger.warning(f"⏭️ [Cron] 任务仍在执行，跳过本次重入: {job.name} ({job.id})")
+        # 防止任务重入执行
+        if job.id in self._running_jobs:
+            logger.warning(i18n["cron_skipping"].format(name=job.name, id=job.id))
             return
 
+        logger.info(i18n["cron_triggering"].format(name=job.name, id=job.id))
+        self._running_jobs.add(job.id)
         task = asyncio.create_task(self._execute_job(job))
         self._job_tasks[job.id] = task
 
     async def _execute_job(self, job: CronJob):
-        logger.info(f"⚡️ [Cron] 正在触发任务: {job.name} ({job.id})")
         start_ms = _now_ms()
         
         # 添加执行时间戳到 job 对象
@@ -219,7 +223,9 @@ class CronService:
         except Exception as e:
             job.state.last_status = "error"
             job.state.last_error = str(e)
-            logger.error(f"❌ [Cron] 任务执行失败: {e}")
+            logger.error(i18n["cron_fail"].format(e=e))
+        finally:
+            self._running_jobs.discard(job.id) # Added this
         
         job.state.last_run_at_ms = start_ms
         job.updated_at_ms = _now_ms()
@@ -263,10 +269,11 @@ class CronService:
         self.jobs = [j for j in self.jobs if j.id != job_id]
         if len(self.jobs) < before:
             # 停止并移除正在运行的任务
-            task = self._job_tasks.pop(job_id, None)
-            if task and not task.done():
-                task.cancel()
-                logger.info(f"🚫 [Cron] 已强行停止并移除任务: {job_id}")
+            job_task = self._job_tasks.pop(job_id, None) # Renamed 'task' to 'job_task' for clarity
+            if job_task:
+                job_task.cancel()
+                logger.info(i18n["cron_removed"].format(id=job_id))
+            self._running_jobs.discard(job_id) # Added this
             
             self._save()
             self._arm_timer()
@@ -276,14 +283,15 @@ class CronService:
     def clear_jobs(self) -> int:
         count = len(self.jobs)
         # 停止所有正在运行的任务
-        for job_id, task in self._job_tasks.items():
-            if not task.done():
-                task.cancel()
-                logger.info(f"🚫 [Cron] 已取消正在运行的任务: {job_id}")
-        self._job_tasks.clear()
+        for job_id, job_task in list(self._job_tasks.items()): # Iterate over a copy
+            if job_task:
+                job_task.cancel()
+                logger.info(i18n["cron_cancelled"].format(id=job_id))
+            self._job_tasks.pop(job_id, None) # Remove from dict
+            self._running_jobs.discard(job_id) # Added this
         
         self.jobs = []
         self._save()
         self._arm_timer()
-        logger.info(f"🧹 [Cron] 已清空所有任务 (共 {count} 个)")
+        logger.info(i18n["cron_cleared"].format(count=count))
         return count

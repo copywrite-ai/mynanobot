@@ -6,6 +6,7 @@ from slack_sdk.socket_mode.aiohttp import SocketModeClient
 from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.socket_mode.request import SocketModeRequest
 from ..logger import logger
+from ..i18n import i18n
 
 class SlackConnector:
     """Slack connector using Socket Mode, similar to FeishuConnector."""
@@ -28,9 +29,9 @@ class SlackConnector:
         # Register event handler
         self.socket_client.socket_mode_request_listeners.append(self._process_request)
         
-        logger.info("🚀 [nanocore] Slack Socket Mode connector starting...")
+        logger.info(i18n["slack_starting"])
         await self.socket_client.connect()
-        logger.info("✅ [nanocore] Slack Socket Mode connector initialized.")
+        logger.info(i18n["slack_init"])
 
     async def _process_request(self, client: SocketModeClient, req: SocketModeRequest):
         if req.type == "events_api":
@@ -49,7 +50,7 @@ class SlackConnector:
         text = event.get("text", "")
         message_ts = event.get("ts")
         
-        logger.info(f"📥 [Slack] Message from {user_id} in {channel_id}: '{text}' (TS: {message_ts})")
+        logger.info(i18n["slack_msg_received"].format(user=user_id, channel=channel_id, text=text, ts=message_ts))
         
         # Add a reaction as confirmation (like Feishu's THUMBSUP)
         await self._send_reaction(channel_id, message_ts, "eyes")
@@ -72,7 +73,7 @@ class SlackConnector:
                 timestamp=timestamp
             )
         except Exception as e:
-            logger.warning(f"⚠️ [Slack] Failed to add reaction: {e}")
+            logger.warning(i18n["slack_reaction_fail"].format(e=e))
 
     async def watch_outbound(self):
         while True:
@@ -102,9 +103,9 @@ class SlackConnector:
                         unfurl_links=False,
                         unfurl_media=False
                     )
-                    logger.info(f"✅ [Slack] Message sent to {channel_id}")
+                    logger.info(i18n["slack_send_success"].format(channel=channel_id))
                 except Exception as e:
-                    logger.error(f"❌ [Slack] Failed to send message: {e}")
+                    logger.error(i18n["slack_send_fail"].format(e=e))
 
 if __name__ == "__main__":
     # Test script similar to Feishu

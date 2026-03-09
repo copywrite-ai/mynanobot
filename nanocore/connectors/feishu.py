@@ -13,6 +13,7 @@ from lark_oapi.api.im.v1 import (
     Emoji
 )
 from ..logger import logger
+from ..i18n import i18n
 
 class FeishuConnector:
     """模仿 nanobot 的飞书通道。"""
@@ -38,12 +39,12 @@ class FeishuConnector:
         
         # 将 WS client 放在独立的后台线程运行，不占用 loop 的默认 executor
         def run_ws():
-            logger.info("🚀 [nanocore] 飞书连接已启动。")
+            logger.info(i18n["feishu_starting"])
             while self._running:
                 try:
                     ws_client.start()
                 except Exception as e:
-                    logger.warning(f"⚠️ [飞书] WebSocket 异常断开: {e}")
+                    logger.warning(i18n["feishu_ws_disconnected"].format(e=e))
                     import time
                     time.sleep(5) # 失败重试
 
@@ -62,7 +63,7 @@ class FeishuConnector:
         # 获取消息创建时间（毫秒级时间戳）
         create_time_ms = int(event.message.create_time) if event.message.create_time else None
         
-        logger.info(f"📥 [飞书] 收到来自 {sender_id} 的消息: '{text}' (ID: {message_id}, 诞生于: {create_time_ms})")
+        logger.info(i18n["feishu_msg_received"].format(sender=sender_id, text=text, id=message_id, time=create_time_ms))
         
         # 立即给一个确认 (Confirm Receive)
         await self._send_reaction(message_id, "THUMBSUP")
@@ -90,11 +91,11 @@ class FeishuConnector:
             
             response = await self.loop.run_in_executor(self._executor, self.client.im.v1.message_reaction.create, request)
             if not response.success():
-                logger.error(f"❌ [飞书] 发送表情 {emoji_type} 失败: {response.code} - {response.msg}")
+                logger.error(i18n["feishu_reaction_fail"].format(type=emoji_type, code=response.code, msg=response.msg))
             else:
                 logger.debug(f"✅ [飞书] 表情 {emoji_type} 发送成功")
         except Exception as e:
-            logger.warning(f"⚠️ [飞书] 发送表情 {emoji_type} 触发异常: {e}")
+            logger.warning(i18n["feishu_reaction_error"].format(type=emoji_type, e=e))
 
     # --- L2 Card Parsing Logic (Ref: nanobot) ---
     _TABLE_RE = re.compile(
@@ -212,9 +213,9 @@ class FeishuConnector:
                 
                 response = await self.loop.run_in_executor(self._executor, self.client.im.v1.message.create, request)
                 if not response.success():
-                    logger.error(f"❌ [飞书] 推送消息失败: {response.code} - {response.msg} (目标: {receive_id})")
+                    logger.error(i18n["feishu_send_fail"].format(code=response.code, msg=response.msg, target=receive_id))
                 else:
-                    logger.info(f"✅ [飞书] 消息推送成功 (目标: {receive_id})")
+                    logger.info(i18n["feishu_send_success"].format(target=receive_id))
 
 if __name__ == "__main__":
     # 独立测试飞书通道：只测试连接，不连 AI 大脑

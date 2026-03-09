@@ -22,34 +22,7 @@ SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
 SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN", "")
 BOT_LANGUAGE = os.getenv("BOT_LANGUAGE", "zh")
 
-# 语言包 (Localization)
-STRINGS = {
-    "zh": {
-        "feishu_missing": "⚠️ [Feishu] 未配置 FEISHU_APP_ID 或 FEISHU_APP_SECRET，飞书通道未启动。",
-        "slack_missing": "⚠️ [Slack] 未配置 SLACK_BOT_TOKEN 或 SLACK_APP_TOKEN，Slack 通道未启动。",
-        "starting": "✨ [mynanocloud] 极简框架版启动中...",
-        "shutdown": "\n👋 机器人已安全关闭。",
-        "cron_pushing": "📡 [Cron] 正在推送提醒到通道 {channel} -> {to}",
-        "cron_empty": "⚠️ [Cron] 任务 {job_id} 处理完毕，但 AI 返回内容为空，未推送。",
-        "cron_prompt_prefix": "SYSTEM: 定时提醒到期。",
-        "cron_prompt_time": "触发时间:",
-        "cron_prompt_content": "提醒内容:",
-        "cron_prompt_guide": "重要指引：\n1. 如果‘提醒内容’是一个简单的文本信息，请直接回复内容。\n2. 如果内容明确要求执行指令，请调用工具并汇报结果。"
-    },
-    "en": {
-        "feishu_missing": "⚠️ [Feishu] FEISHU_APP_ID or FEISHU_APP_SECRET not configured. Feishu connector skipped.",
-        "slack_missing": "⚠️ [Slack] SLACK_BOT_TOKEN or SLACK_APP_TOKEN not configured. Slack connector skipped.",
-        "starting": "✨ [mynanocloud] Minimal framework starting...",
-        "shutdown": "\n👋 Bot has been safely shut down.",
-        "cron_pushing": "📡 [Cron] Pushing reminder to channel {channel} -> {to}",
-        "cron_empty": "⚠️ [Cron] Job {job_id} finished, but AI returned empty content. Not pushed.",
-        "cron_prompt_prefix": "SYSTEM: Scheduled reminder triggered.",
-        "cron_prompt_time": "Trigger Time:",
-        "cron_prompt_content": "Content:",
-        "cron_prompt_guide": "GUIDELINES:\n1. If the content is simple text, just reply with it.\n2. If it asks for an action, call the tool and report the result."
-    }
-}
-s = STRINGS.get(BOT_LANGUAGE, STRINGS["en"])
+from nanocore.i18n import i18n as s
 
 from nanocore.tools.base import ToolRegistry
 from nanocore.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool, EditFileTool

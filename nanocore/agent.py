@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime
 from openai import AsyncOpenAI
 from .logger import logger
+from .i18n import i18n
 from .tools.base import ToolRegistry
 from .session import SessionManager
 from .tools.memory import MemoryStore
@@ -37,7 +38,11 @@ class AgentBrain:
         user_info = Path("USER.md").read_text() if Path("USER.md").exists() else ""
         long_term_memory = self.memory_store.read() if self.memory_store else ""
         
+        language = os.getenv("BOT_LANGUAGE", "zh")
+        lang_instruction = "Your primary response language should be Chinese (Simplified)." if language == "zh" else "Your primary response language should be English."
+        
         prompt = f"# nanobot 🐈 (MNC Core)\n\n{soul}\n\n{user_info}\n"
+        prompt += f"\n## Language Mode\n{lang_instruction}\n"
         
         if long_term_memory:
             prompt += f"\n## Memory\n{long_term_memory}\n"
@@ -88,7 +93,7 @@ class AgentBrain:
                 
                 # 处理 /stop 指令
                 if user_text == "/stop":
-                    logger.info(f"🧠 [大脑] 收到停止指令来自: {sender}")
+                    logger.info(i18n["agent_stop_received"].format(sender=sender))
                     count = 0
                     if self.subagent_manager:
                         count = await self.subagent_manager.stop_all()
@@ -104,7 +109,7 @@ class AgentBrain:
                 if not user_text:
                     continue
 
-                logger.info(f"🧠 [大脑] 收到任务: {user_text}")
+                logger.info(i18n["agent_task_received"].format(text=user_text))
 
                 # 1. 加载历史消息
                 messages = []
@@ -165,7 +170,7 @@ class AgentBrain:
                     "status": "finished"
                 })
             except Exception as e:
-                logger.error(f"❌ [大脑] 处理消息出错 (系统级): {e}")
+                logger.error(i18n["agent_error_system"].format(e=e))
                 # 即使出错也不退出 while True，保证大脑继续运行
                 await asyncio.sleep(1)
 
@@ -174,7 +179,7 @@ class AgentBrain:
         for turn in range(self.max_turns):
             try:
                 openai_tools = self.tools.get_openai_tools() if self.tools else None
-                logger.info(f"  🧠 [大脑] 正在调用 LLM (模型: {self.model}, 消息数: {len(messages)})")
+                logger.info(i18n["agent_calling_llm"].format(model=self.model, count=len(messages)))
                 for i, m in enumerate(messages):
                     role = m.get("role")
                     content = m.get("content", "")
@@ -189,7 +194,7 @@ class AgentBrain:
                     tools=openai_tools if openai_tools else None,
                     timeout=60.0 # 增加 1 分钟超时
                 )
-                logger.info(f"  ↳ ✅ LLM 响应成功")
+                logger.info(i18n["agent_llm_success"])
             except Exception as e:
                 error_msg = f"LLM 调用出错: {str(e)}"
                 logger.error(f"❌ {error_msg}")
@@ -199,17 +204,17 @@ class AgentBrain:
             if not resp_msg.tool_calls:
                 final_text = resp_msg.content or ""
                 if not final_text:
-                    logger.warning("  ↳ ⚠️ LLM 返回了空内容且没有工具调用。")
+                    logger.warning(i18n["agent_llm_empty"])
                 messages.append({"role": "assistant", "content": final_text})
                 return final_text
 
-            # 将 OpenAI 的消息对象转为 dict 存入历史，否则无法 JSON 序列化
+            # 将 OpenAI 的 message 对象转为 dict 存入历史，否则无法 JSON 序列化
             messages.append(resp_msg.model_dump())
             
             for tc in resp_msg.tool_calls:
                 name = tc.function.name
                 args = json.loads(tc.function.arguments) if isinstance(tc.function.arguments, str) else tc.function.arguments
-                logger.info(f"  ↳ 🛠️  执行工具: {name}({json.dumps(args, ensure_ascii=False)})")
+                logger.info(i18n["agent_executing_tool"].format(name=name, args=json.dumps(args, ensure_ascii=False)))
                 if self.tools:
                     # 如果工具需要上下文，设置上下文
                     tool_instance = self.tools.get(name)
@@ -217,7 +222,7 @@ class AgentBrain:
                         tool_instance.set_context(sender=sender)
                         
                     result = await self.tools.call(name, args)
-                    logger.info(f"  ↳ ✅ 工具执行完毕，结果长度: {len(result) if result else 0}")
+                    logger.info(i18n["agent_tool_finished"].format(len=len(result) if result else 0))
                 else:
                     result = f"错误：未配置工具注册表，无法执行 {name}。"
                 messages.append({"role": "tool", "tool_call_id": tc.id, "name": name, "content": result})

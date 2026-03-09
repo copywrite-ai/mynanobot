@@ -2,6 +2,7 @@ import asyncio
 import uuid
 import json
 from .logger import logger
+from .i18n import i18n
 
 class SubagentManager:
     """管理后台子代理的运行和生命周期。"""
@@ -30,12 +31,12 @@ class SubagentManager:
         # 任务结束后的清理
         bg_task.add_done_callback(lambda t: self._running_tasks.pop(task_id, None))
         
-        logger.info(f"🚀 [SubagentManager] 已启动子代理 [{task_id}]: {display_label}")
+        logger.info(i18n["subagent_starting"].format(id=task_id, label=display_label))
         return f"子代理已启动 (ID: {task_id})。任务完成后我会通过系统消息通知你。"
 
     async def _run_subagent(self, task_id: str, task: str, label: str, sender: str):
         """子代理的具体运行逻辑。"""
-        logger.info(f"⏳ [Subagent] 子代理 {task_id} 开始执行: {label}")
+        logger.info(i18n["subagent_executing"].format(id=task_id, label=label))
         
         try:
             # 1. 创建一个新的大脑实例用于子代理
@@ -68,12 +69,12 @@ class SubagentManager:
                 "chat_id": sender # 回传到当初触发的聊天窗口
             })
             
-            logger.info(f"✅ [Subagent] 子代理 {task_id} 顺利完成。")
+            logger.info(i18n["subagent_finished"].format(id=task_id))
             
         except asyncio.CancelledError:
-            logger.warning(f"🛑 [Subagent] 子代理 {task_id} 被强制中断。")
+            logger.warning(i18n["subagent_interrupted"].format(id=task_id))
         except Exception as e:
-            logger.error(f"❌ [Subagent] 子代理 {task_id} 执行出错: {e}")
+            logger.error(i18n["subagent_error"].format(id=task_id, e=e))
             await self.bus.inbound.put({
                 "sender": "system",
                 "text": f"【子代理报错 - {label}】执行过程中遇到错误: {e}",
@@ -88,5 +89,6 @@ class SubagentManager:
         
         if count > 0:
             await asyncio.gather(*self._running_tasks.values(), return_exceptions=True)
-            logger.info(f"⏹ [SubagentManager] 已停止 {count} 个运行中的任务。")
+            logger.info(i18n["subagent_stopped_count"].format(count=count))
+        self._running_tasks.clear() # Clear the dictionary after attempting to stop all tasks
         return count
