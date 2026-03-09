@@ -130,7 +130,7 @@ class AgentBrain:
                 
                 # 注入运行时上下文（作为独立消息）
                 runtime_context = self._build_runtime_context(
-                    channel="feishu", 
+                    channel=incoming.get("channel", "unknown"), 
                     sender=sender, 
                     create_time_ms=incoming.get("create_time_ms")
                 )

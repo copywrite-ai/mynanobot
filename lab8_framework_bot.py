@@ -8,6 +8,7 @@ load_dotenv()
 from nanocore.bus import MessageBus
 from nanocore.agent import AgentBrain
 from nanocore.connectors.feishu import FeishuConnector
+from nanocore.connectors.slack import SlackConnector
 from nanocore.tools.media import MediaTool
 
 # 配置信息 (从环境变量读取)
@@ -16,6 +17,39 @@ APP_SECRET = os.getenv("FEISHU_APP_SECRET", "")
 LM_URL = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
 LM_MODEL = os.getenv("LM_MODEL", "local-model")
 LM_API_KEY = os.getenv("LM_API_KEY", "lm-studio")
+
+SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN", "")
+SLACK_APP_TOKEN = os.getenv("SLACK_APP_TOKEN", "")
+BOT_LANGUAGE = os.getenv("BOT_LANGUAGE", "zh")
+
+# 语言包 (Localization)
+STRINGS = {
+    "zh": {
+        "feishu_missing": "⚠️ [Feishu] 未配置 FEISHU_APP_ID 或 FEISHU_APP_SECRET，飞书通道未启动。",
+        "slack_missing": "⚠️ [Slack] 未配置 SLACK_BOT_TOKEN 或 SLACK_APP_TOKEN，Slack 通道未启动。",
+        "starting": "✨ [mynanocloud] 极简框架版启动中...",
+        "shutdown": "\n👋 机器人已安全关闭。",
+        "cron_pushing": "📡 [Cron] 正在推送提醒到通道 {channel} -> {to}",
+        "cron_empty": "⚠️ [Cron] 任务 {job_id} 处理完毕，但 AI 返回内容为空，未推送。",
+        "cron_prompt_prefix": "SYSTEM: 定时提醒到期。",
+        "cron_prompt_time": "触发时间:",
+        "cron_prompt_content": "提醒内容:",
+        "cron_prompt_guide": "重要指引：\n1. 如果‘提醒内容’是一个简单的文本信息，请直接回复内容。\n2. 如果内容明确要求执行指令，请调用工具并汇报结果。"
+    },
+    "en": {
+        "feishu_missing": "⚠️ [Feishu] FEISHU_APP_ID or FEISHU_APP_SECRET not configured. Feishu connector skipped.",
+        "slack_missing": "⚠️ [Slack] SLACK_BOT_TOKEN or SLACK_APP_TOKEN not configured. Slack connector skipped.",
+        "starting": "✨ [mynanocloud] Minimal framework starting...",
+        "shutdown": "\n👋 Bot has been safely shut down.",
+        "cron_pushing": "📡 [Cron] Pushing reminder to channel {channel} -> {to}",
+        "cron_empty": "⚠️ [Cron] Job {job_id} finished, but AI returned empty content. Not pushed.",
+        "cron_prompt_prefix": "SYSTEM: Scheduled reminder triggered.",
+        "cron_prompt_time": "Trigger Time:",
+        "cron_prompt_content": "Content:",
+        "cron_prompt_guide": "GUIDELINES:\n1. If the content is simple text, just reply with it.\n2. If it asks for an action, call the tool and report the result."
+    }
+}
+s = STRINGS.get(BOT_LANGUAGE, STRINGS["en"])
 
 from nanocore.tools.base import ToolRegistry
 from nanocore.tools.filesystem import ReadFileTool, WriteFileTool, ListDirTool, EditFileTool
@@ -29,9 +63,6 @@ from nanocore.subagent import SubagentManager
 from nanocore.tools.spawn import SpawnTool
 from pathlib import Path
 
-# 配置信息
-APP_ID = "cli_a92f341516f85cd6"
-APP_SECRET = "UeqcAN0CYicRqNRFUThfPeOQaKH4firz"
 
 async def start_my_bot():
     # 1. 初始化总线和持久化层
@@ -88,14 +119,11 @@ async def start_my_bot():
         
         # 使用更明确的指令，区分“内容推送”和“指令执行”
         trigger_prompt = (
-            f"SYSTEM: 定时提醒到期。\n"
-            f"触发时间: {trigger_time}\n"
-            f"提醒内容: {job.payload.message}\n"
+            f"{s['cron_prompt_prefix']}\n"
+            f"{s['cron_prompt_time']} {trigger_time}\n"
+            f"{s['cron_prompt_content']} {job.payload.message}\n"
             f"---\n"
-            f"重要指引：\n"
-            f"1. 如果‘提醒内容’是一个简单的文本信息（如 'hello', '记得喝水'），请直接将其作为你的回复内容回复，不要调用任何工具。\n"
-            f"2. 如果‘提醒内容’明确要求执行某个指令（如 '列出文件', '检查运行状态'），请调用相应的工具并汇报结果。\n"
-            f"3. 不要自作聪明地去列表或执行与之无关的工具。"
+            f"{s['cron_prompt_guide']}"
         )
         
         # 建议使用独立的 session_id (如 cron:job_id)，避免与用户的日常对话背景混淆
@@ -104,7 +132,7 @@ async def start_my_bot():
         response_text = await brain.process_direct(trigger_prompt, sender=cron_session_id)
         
         if job.payload.deliver and job.payload.to:
-            logger.info(f"📡 [Cron] 正在推送提醒到通道 {job.payload.channel} -> {job.payload.to}")
+            logger.info(s["cron_pushing"].format(channel=job.payload.channel, to=job.payload.to))
             # 在消息前加上时间戳
             final_message = f"⏰ {trigger_time}\n{response_text}"
             await bus.outbound.put({
@@ -113,27 +141,34 @@ async def start_my_bot():
                 "status": "finished"
             })
         elif job.payload.deliver and not response_text:
-            logger.warning(f"⚠️ [Cron] 任务 {job.id} 处理完毕，但 AI 返回内容为空，未推送。")
+            logger.warning(s["cron_empty"].format(job_id=job.id))
     
     cron_service.on_job = on_cron_job
     registry.register(CronTool(cron_service)) # 注册定时工具
     registry.register(ClockTool()) # 注册时钟工具
 
-    # 5. 初始化通道
-    feishu = FeishuConnector(bus, APP_ID, APP_SECRET)
+    # 5. 初始化通道并启动
+    tasks = [brain.run(), cron_service.start()]
+
+    if APP_ID and APP_SECRET:
+        feishu = FeishuConnector(bus, APP_ID, APP_SECRET)
+        tasks.extend([feishu.watch_outbound(), feishu.start()])
+    else:
+        logger.warning(s["feishu_missing"])
+
+    if SLACK_BOT_TOKEN and SLACK_APP_TOKEN:
+        slack = SlackConnector(bus, SLACK_BOT_TOKEN, SLACK_APP_TOKEN)
+        tasks.extend([slack.watch_outbound(), slack.start()])
+    else:
+        logger.warning(s["slack_missing"])
     
-    logger.info("✨ [mynanocloud] 极简框架版启动中...")
+    logger.info(s["starting"])
     
     # 7. 并发运行所有组件
-    await asyncio.gather(
-        brain.run(),
-        feishu.watch_outbound(),
-        feishu.start(),
-        cron_service.start()
-    )
+    await asyncio.gather(*tasks)
 
 if __name__ == "__main__":
     try:
         asyncio.run(start_my_bot())
     except KeyboardInterrupt:
-        print("\n👋 机器人已安全关闭。")
+        print(s["shutdown"])

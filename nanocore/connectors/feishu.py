@@ -68,6 +68,7 @@ class FeishuConnector:
         await self._send_reaction(message_id, "THUMBSUP")
         
         await self.bus.inbound.put({
+            "channel": "feishu",
             "sender": sender_id, 
             "text": text, 
             "message_id": message_id,

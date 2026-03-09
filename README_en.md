@@ -70,7 +70,15 @@ Ensure you have Docker and Docker Compose installed.
 ```bash
 docker-compose up --build -d
 ```
-The bot will connect to Feishu and use `host.docker.internal:1234` to talk to your local LLM (e.g., LM Studio).
+The bot will connect to Feishu/Slack and use `host.docker.internal:1234` to talk to your local LLM (e.g., LM Studio).
+
+### 3. Connect to Slack (Socket Mode)
+1. Create an App at [Slack API](https://api.slack.com/apps), enable **Socket Mode** to get the `xapp-` Token.
+2. In **OAuth & Permissions**, add scopes like `chat:write`, `im:history`, `reactions:add`.
+3. In **Event Subscriptions**, enable events and subscribe to `message.im`, etc.
+4. In **App Home**, enable the **Messages Tab**.
+5. Get the `xoxb-` Bot Token.
+6. Fill in `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in your `.env`.
 
 ---
 
