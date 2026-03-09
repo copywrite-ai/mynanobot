@@ -15,6 +15,12 @@ STRINGS = {
         "agent_llm_empty": "  ↳ ⚠️ LLM 返回了空内容且没有工具调用。",
         "agent_executing_tool": "  ↳ 🛠️  执行工具: {name}({args})",
         "agent_tool_finished": "  ↳ ✅ 工具执行完毕，结果长度: {len}",
+        "agent_llm_error": "LLM 调用出错: {e}",
+        "agent_no_registry": "错误：未配置工具注册表，无法执行 {name}。",
+        "agent_max_turns": "达到最大思考轮数，未生成最终回复。",
+        "agent_stop_response": "⏹ 已停止 {count} 个后台任务并清理上下文。",
+        "agent_stop_no_task_response": "⏹ 已清理当前指令集。",
+        "agent_truncated_suffix": "... (已截断)",
         
         "feishu_missing": "⚠️ [Feishu] 未配置 FEISHU_APP_ID 或 FEISHU_APP_SECRET，飞书通道未启动。",
         "slack_missing": "⚠️ [Slack] 未配置 SLACK_BOT_TOKEN 或 SLACK_APP_TOKEN，Slack 通道未启动。",
@@ -33,6 +39,8 @@ STRINGS = {
         "feishu_reaction_error": "⚠️ [飞书] 发送表情 {type} 触发异常: {e}",
         "feishu_send_fail": "❌ [飞书] 推送消息失败: {code} - {msg} (目标: {target})",
         "feishu_send_success": "✅ [飞书] 消息推送成功 (目标: {target})",
+        "feishu_reaction_trying": "⚡️ [飞书] 尝试打表情: {type} 到消息 {id}",
+        "feishu_reaction_success": "✅ [飞书] 表情 {type} 发送成功",
         
         "slack_starting": "🚀 [nanocore] Slack Socket Mode connector starting...",
         "slack_init": "✅ [nanocore] Slack Socket Mode connector initialized.",
@@ -67,6 +75,12 @@ STRINGS = {
         "agent_llm_empty": "  ↳ ⚠️ LLM returned empty content without tool calls.",
         "agent_executing_tool": "  ↳ 🛠️  Executing tool: {name}({args})",
         "agent_tool_finished": "  ↳ ✅ Tool execution finished, result length: {len}",
+        "agent_llm_error": "LLM call error: {e}",
+        "agent_no_registry": "Error: Tool registry not configured, cannot execute {name}.",
+        "agent_max_turns": "Maximum thinking turns reached, no final response generated.",
+        "agent_stop_response": "⏹ Stopped {count} background tasks and cleared context.",
+        "agent_stop_no_task_response": "⏹ Current instruction set cleared.",
+        "agent_truncated_suffix": "... (truncated)",
         
         "feishu_missing": "⚠️ [Feishu] FEISHU_APP_ID or FEISHU_APP_SECRET not configured. Feishu connector skipped.",
         "slack_missing": "⚠️ [Slack] SLACK_BOT_TOKEN or SLACK_APP_TOKEN not configured. Slack connector skipped.",
@@ -85,6 +99,8 @@ STRINGS = {
         "feishu_reaction_error": "⚠️ [Feishu] Exception while sending reaction {type}: {e}",
         "feishu_send_fail": "❌ [Feishu] Failed to push message: {code} - {msg} (Target: {target})",
         "feishu_send_success": "✅ [Feishu] Message pushed successfully (Target: {target})",
+        "feishu_reaction_trying": "⚡️ [Feishu] Trying to add reaction: {type} to message {id}",
+        "feishu_reaction_success": "✅ [Feishu] Reaction {type} sent successfully",
         
         "slack_starting": "🚀 [nanocore] Slack Socket Mode connector starting...",
         "slack_init": "✅ [nanocore] Slack Socket Mode connector initialized.",

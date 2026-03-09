@@ -29,8 +29,7 @@ class AgentBrain:
         self.memory_window = memory_window
         self.max_turns = 10
 
-    async def run(self):
-        logger.info("🧠 [nanocore] 大脑引擎已启动。")
+
         
     def _get_base_system_prompt(self) -> str:
         """生成包含记忆和灵魂的系统提示词。"""
@@ -78,7 +77,7 @@ class AgentBrain:
         return self._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
 
     async def run(self):
-        logger.info("🧠 [nanocore] 大脑引擎已启动。")
+        logger.info(i18n["agent_starting"])
         
         while True:
             try:
@@ -101,7 +100,7 @@ class AgentBrain:
                     await self.bus.outbound.put({
                         "sender": sender,
                         "message_id": message_id,
-                        "text": f"⏹ 已停止 {count} 个后台任务并清理上下文。" if count else "⏹ 已清理当前指令集。",
+                        "text": i18n["agent_stop_response"].format(count=count) if count else i18n["agent_stop_no_task_response"],
                         "status": "finished"
                     })
                     continue
@@ -157,7 +156,7 @@ class AgentBrain:
                         # 克隆并截断长工具输出
                         entry = dict(m)
                         if entry.get("role") == "tool" and isinstance(content, str) and len(content) > 500:
-                            entry["content"] = content[:500] + "... (truncated)"
+                            entry["content"] = content[:500] + i18n["agent_truncated_suffix"]
                         
                         filtered_history.append(entry)
                     
@@ -196,7 +195,7 @@ class AgentBrain:
                 )
                 logger.info(i18n["agent_llm_success"])
             except Exception as e:
-                error_msg = f"LLM 调用出错: {str(e)}"
+                error_msg = i18n["agent_llm_error"].format(e=str(e))
                 logger.error(f"❌ {error_msg}")
                 return error_msg
 
@@ -224,9 +223,9 @@ class AgentBrain:
                     result = await self.tools.call(name, args)
                     logger.info(i18n["agent_tool_finished"].format(len=len(result) if result else 0))
                 else:
-                    result = f"错误：未配置工具注册表，无法执行 {name}。"
+                    result = i18n["agent_no_registry"].format(name=name)
                 messages.append({"role": "tool", "tool_call_id": tc.id, "name": name, "content": result})
-        return "达到最大思考轮数，未生成最终回复。"
+        return i18n["agent_max_turns"]
 
     async def process_direct(self, content: str, sender: str, message_id: str = None) -> str:
         """从外部（如定时任务）直接触发一次大脑处理。"""
@@ -264,7 +263,7 @@ class AgentBrain:
                 
                 entry = dict(m)
                 if entry.get("role") == "tool" and isinstance(content, str) and len(content) > 500:
-                    entry["content"] = content[:500] + "... (truncated)"
+                    entry["content"] = content[:500] + i18n["agent_truncated_suffix"]
                 
                 filtered_history.append(entry)
             

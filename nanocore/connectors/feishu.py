@@ -78,7 +78,7 @@ class FeishuConnector:
 
     async def _send_reaction(self, message_id: str, emoji_type: str):
         """发送表情回复"""
-        logger.debug(f"⚡️ [飞书] 尝试打表情: {emoji_type} 到消息 {message_id}")
+        logger.debug(i18n["feishu_reaction_trying"].format(type=emoji_type, id=message_id))
         try:
             from lark_oapi.api.im.v1 import CreateMessageReactionRequest, CreateMessageReactionRequestBody, Emoji
             request = CreateMessageReactionRequest.builder() \
@@ -93,7 +93,7 @@ class FeishuConnector:
             if not response.success():
                 logger.error(i18n["feishu_reaction_fail"].format(type=emoji_type, code=response.code, msg=response.msg))
             else:
-                logger.debug(f"✅ [飞书] 表情 {emoji_type} 发送成功")
+                logger.debug(i18n["feishu_reaction_success"].format(type=emoji_type))
         except Exception as e:
             logger.warning(i18n["feishu_reaction_error"].format(type=emoji_type, e=e))
 
